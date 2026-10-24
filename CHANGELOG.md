@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog][keep-a-changelog],
 and this project adheres to
 [Semantic Versioning][sem-ver].
 
+## [Unreleased]
+
+### Fixed
+
+- Fix v2 delivery on OpenCode >= 2.1.x by classifying the SPA shell as a
+  probe miss (root cause: v2 answers unknown v1 routes with HTTP 200
+  `text/html`, so `res.ok` read a healthy v2 server as a healthy v1 server
+  and the next `POST prompt_async` failed with 405; fix mechanism: shared
+  `isV1StatusResponse` guard on every v1 probe plus a v2 user-admission
+  fallback on any non-204 direct answer; gate: service-state and v2send
+  suites green)
+- Fix zero-config delivery on a background v2 service by discovering its
+  published port and password (root cause: v2 binds a random loopback port
+  and requires Basic auth, while mesh pinned 4096 and only read env
+  credentials the plugin process never inherited, so every send queued;
+  fix mechanism: read `<state>/opencode/service.json` for the live port and
+  password behind env precedence, revalidated by mtime; gate: service-state
+  suite green)
+- Fix `opencode-mesh status` reading unreachable on v2 plus a false
+  `plugin: absent` for `opencode.jsonc` (root cause: the probe parsed
+  `/session/status` as JSON and only read `opencode.json`; fix mechanism:
+  v2 active-view fallback, `route` field, jsonc fallback read; gate:
+  e2e-cli suite green)
+
 ## [1.2.0] - 2026-10-12
 
 ### Fixed

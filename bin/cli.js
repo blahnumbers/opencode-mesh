@@ -135,7 +135,10 @@ if (cmd === "install") {
 } else if (cmd === "status") {
   const json = args.includes("--json");
   const { resolveMeshRoot, resolveOutboxPath } = await import("../dist/xdg.js");
-  const { OPENCODE_PORT, ROUTE_PROBE_TIMEOUT_MS } = await import("../dist/constants.js");
+  const { resolveOpencodePort, ROUTE_PROBE_TIMEOUT_MS } = await import("../dist/constants.js");
+  const { readServiceState } = await import("../dist/serviceState.js");
+  const { isSpaShellResponse } = await import("../dist/httpProbe.js");
+  const { fetchV2Active } = await import("../dist/v2routes.js");
   const { unwrapStatusMap } = await import("../dist/registry.js");
   const { getServerAuthHeaderSync } = await import("../dist/serverAuth.js");
   const { SKILL_SUBPATH } = await import("../dist/install/paths.js");
@@ -143,17 +146,22 @@ if (cmd === "install") {
   const { classifyPluginInstall, rollupPluginPresence } = await import("../dist/install/statusMatrix.js");
   const start = Date.now();
   const live = resolve(homedir(), ".config/opencode/opencode.json");
+  const liveJsonc = resolve(homedir(), ".config/opencode/opencode.jsonc");
   const cliLive = resolve(homedir(), ".config/opencode/cli.json");
-  const portConstant = OPENCODE_PORT;
-  const portSource = process.env.OPENCODE_PORT ? "env" : "default";
+  const serviceState = readServiceState();
+  const portConstant = resolveOpencodePort();
+  const portSource = process.env.OPENCODE_PORT ? "env" : serviceState ? "service" : "default";
   const checks = await Promise.all([
     (async () => {
       // Six-state truth: structural reads of both keys in opencode.json plus
       // cli.json plugins; the rollup keeps the present/absent contract while
       // pluginSources carries the state (absent, legacy-only, native-only,
       // dual-server, cli-augmented, disabled) plus the spec-mismatch flag.
+      // Why: v2 hosts may keep the config in opencode.jsonc; the classifier is
+      // text-based, so comments are safe to feed it.
       const readRaw = async (p) => { try { return await readFile(p, "utf8"); } catch { return null; } };
       let opencodeRaw = await readRaw(live);
+      if (opencodeRaw === null) opencodeRaw = await readRaw(liveJsonc);
       if (opencodeRaw === null) {
         try {
           const s = detectStowRoot(live);
@@ -175,22 +183,33 @@ if (cmd === "install") {
     (async () => { try { const s = await stat(resolveMeshRoot()); return (s.mode & 0o777).toString(8); } catch { return "absent"; } })(),
     (async () => {
       const auth = getServerAuthHeaderSync();
-      const authKind = auth ? (process.env.OPENCODE_SERVER_PASSWORD ? "env" : "keychain-optin") : "none";
+      const authKind = process.env.OPENCODE_SERVER_PASSWORD
+        ? "env"
+        : process.env.OPENCODE_MESH_KEYCHAIN_PROVIDER === "1"
+          ? "keychain-optin"
+          : serviceState?.password
+            ? "service"
+            : "none";
       const headers = {};
       if (auth) headers.Authorization = auth;
       const t0 = Date.now();
       try {
         const res = await fetch(`http://127.0.0.1:${portConstant}/session/status`, { headers, signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS) });
         const latencyMs = Date.now() - t0;
-        if (res.ok) {
+        if (res.ok && !isSpaShellResponse(res)) {
           // Why: payloads arrive {data}-wrapped or raw — unwrap first so the
           // count reads sessions, never wrapper keys.
-          const liveMap = unwrapStatusMap(await res.json());
-          return { reachable: true, latencyMs, liveCount: liveMap ? Object.keys(liveMap).length : 0, auth: authKind };
+          let liveMap = null;
+          try { liveMap = unwrapStatusMap(await res.json()); } catch { /* v2 serves the SPA shell here */ }
+          return { reachable: true, latencyMs, liveCount: liveMap ? Object.keys(liveMap).length : 0, route: "v1", auth: authKind };
         }
-        return { reachable: false, latencyMs, liveCount: 0, auth: authKind };
+        // v2 hosts answer unknown v1 routes with the SPA shell; the active view
+        // is the truthful liveness probe there (empty is still reachable).
+        const v2 = await fetchV2Active(portConstant, auth);
+        if (v2) return { reachable: true, latencyMs: Date.now() - t0, liveCount: Object.keys(v2).length, route: "v2", auth: authKind };
+        return { reachable: false, latencyMs: Date.now() - t0, liveCount: 0, route: "none", auth: authKind };
       } catch {
-        return { reachable: false, latencyMs: Date.now() - t0, liveCount: 0, auth: authKind };
+        return { reachable: false, latencyMs: Date.now() - t0, liveCount: 0, route: "none", auth: authKind };
       }
     })(),
     (async () => { try { await stat(resolveOutboxPath()); return "reachable"; } catch { return "absent"; } })(),

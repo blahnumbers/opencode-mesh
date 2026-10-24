@@ -3,7 +3,8 @@
 // Bounded local server enumeration.
 // Env plus default port in, sightings with fingerprint out; bind-ownership arbitrates incarnations.
 import { createHash } from "node:crypto";
-import { ONE_MB, OPENCODE_PORT } from "./constants.js";
+import { ONE_MB, resolveOpencodePort } from "./constants.js";
+import { isV1StatusResponse } from "./httpProbe.js";
 import { getServerAuthHeader } from "./serverAuth.js";
 
 export const ENUM_MAX_PORTS = 8;
@@ -26,7 +27,7 @@ export function enumPorts(explicit?: number[]): number[] {
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535);
-  const base = explicit && explicit.length > 0 ? explicit : fromEnv.length > 0 ? fromEnv : [OPENCODE_PORT];
+  const base = explicit && explicit.length > 0 ? explicit : fromEnv.length > 0 ? fromEnv : [resolveOpencodePort()];
   return [...new Set(base)].slice(0, ENUM_MAX_PORTS);
 }
 
@@ -70,10 +71,11 @@ export async function probePort(port: number, timeoutMs: number = ENUM_TIMEOUT_M
     const headers: Record<string, string> = {};
     if (auth) headers.Authorization = auth;
     const res = await fetch(`http://127.0.0.1:${port}/session/status`, { headers, signal: AbortSignal.timeout(timeoutMs) });
-    const body = res.ok ? await readBoundedBody(res) : "";
+    const ok = isV1StatusResponse(res);
+    const body = ok ? await readBoundedBody(res) : "";
     return {
       port,
-      reachable: res.ok,
+      reachable: ok,
       latencyMs: Date.now() - t0,
       fingerprint: body ? createHash("sha1").update(body).digest("hex") : "",
       observedAt: Date.now(),

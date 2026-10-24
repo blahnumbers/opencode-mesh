@@ -376,6 +376,64 @@ describe('v2 prompt status mapping', () => {
       restore();
     }
   });
+
+  it('v2 2.1.x SPA shell on the v1 probe still admits via the v2 leg', async () => {
+    // Reproduces OpenCode >= 2.1.x: GET /session/status answers 200 text/html
+    // (the web SPA shell) and POST prompt_async answers 405. The send must not
+    // read that as a v1 admit path nor surface SERVER_UNAVAILABLE.
+    const { root, restore } = await freshRoot('v2send-spa-');
+    await seedPeer('v2-peer', { agent: 'alfred', model: 'acme/reasoner' });
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: unknown, init?: unknown) => {
+      const u = String(url);
+      calls.push(`${(init as { method?: string })?.method ?? 'GET'} ${u}`);
+      if (u.endsWith('/session/status')) {
+        return new Response('<!doctype html><html></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (u.endsWith('/api/session/active')) return jsonResponse({ data: {} });
+      if (u.includes('/prompt_async')) {
+        return new Response('method not allowed', { status: 405 });
+      }
+      if (u.endsWith('/api/session/v2-peer')) {
+        return jsonResponse({
+          data: {
+            id: 'v2-peer',
+            agent: 'alfred',
+            model: { providerID: 'acme', id: 'reasoner' },
+            title: 'Alfred relay',
+          },
+        });
+      }
+      if (u.endsWith('/api/session/v2-peer/prompt')) return jsonResponse({ id: 'inbox_spa' });
+      return new Response('miss', { status: 404 });
+    }) as unknown as typeof fetch;
+    const { mesh_send } = await import('../src/tools/mesh_send.js');
+    try {
+      const out = JSON.parse(
+        String(
+          (
+            await (mesh_send.execute as any)(
+              { target: 'v2-peer', text: 'hello v2.1' },
+              { sessionID: 'v2-caller', agent: 'manager' },
+            )
+          ).output,
+        ),
+      ) as { via: string; id: string };
+      expect(out.via).toBe('admitted');
+      expect(out.id).toBe('inbox_spa');
+      expect(calls.some((c) => c.includes('POST') && c.includes('/prompt_async'))).toBe(true);
+      const admits = calls.filter(
+        (c) => c.includes('POST') && c.endsWith('/api/session/v2-peer/prompt'),
+      );
+      expect(admits).toHaveLength(1);
+    } finally {
+      await safeRm(root);
+      restore();
+    }
+  });
 });
 
   it('v1 admit never touches v2 paths', async () => {

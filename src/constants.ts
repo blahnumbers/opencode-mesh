@@ -1,6 +1,8 @@
 // Copyright (c) 2026 DIVISION 7 | MI-7 (@divisionseven)
 // SPDX-License-Identifier: MIT
 // Narrow mesh constants (pure TUI-identical).
+import { readServiceState } from "./serviceState.js";
+
 export const ONE_MB = 1 << 20;
 export const STALE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Degraded-peers window: 2x ensureHeartbeat tick, covers one missed tick. */
@@ -9,9 +11,24 @@ export const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
 export const EVICT_GRACE_MS = 60 * 1000;
 /** Heartbeat cadence: plugin tick re-attests own ids; one miss never flaps. */
 export const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
-/** Default loopback port when OPENCODE_PORT is unset; single source. */
+/** Default loopback port when OPENCODE_PORT is unset and no v2 service is running. */
 export const DEFAULT_OPENCODE_PORT = 4096;
+/** Legacy import-time snapshot; delivery paths use resolveOpencodePort() for live reads. */
 export const OPENCODE_PORT = Number(process.env.OPENCODE_PORT ?? String(DEFAULT_OPENCODE_PORT));
+
+/**
+ * Live loopback port: explicit env, then the running v2 service's published
+ * URL, then the v1 default. v2 services bind a random port, so a static 4096
+ * pin queues every send; the service file is rewritten on each restart and is
+ * re-read here instead of cached for the process lifetime.
+ */
+export function resolveOpencodePort(fallback: number = DEFAULT_OPENCODE_PORT): number {
+  const env = Number(process.env.OPENCODE_PORT);
+  if (Number.isInteger(env) && env >= 1 && env <= 65535) return env;
+  const state = readServiceState();
+  if (state) return state.port;
+  return fallback;
+}
 export const DIR_MODE = 0o700;
 export const FILE_MODE = 0o600;
 /** Crash-safe lock reap age: stale locks reap on the next writer. */

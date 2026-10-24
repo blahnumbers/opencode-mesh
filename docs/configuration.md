@@ -17,7 +17,7 @@ All mesh behavior is driven by environment variables. No config files, no YAML, 
 
 | Variable        | Default | Description                                                                                                                                                                                                                    |
 | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OPENCODE_PORT` | `4096`  | OpenCode server loopback port. Status probes and delivery start here; V2 legs continue across probed ports with V2 routes. Single constant `4096`; `status` reports `source: env` when set, `default` otherwise. The port dials only; the server owns it. |
+| `OPENCODE_PORT` | `4096`  | OpenCode server loopback port. Resolution order: `OPENCODE_PORT`, then the running v2 service's published URL (`<state>/opencode/service.json`), then `4096`. `status` reports `source: env`, `source: service`, or `source: default`. V1 hosts and `--standalone` servers keep the 4096 default; a background v2 service binds a random port, so discovery is what makes delivery immediate without setup. The port dials only; the server owns it. |
 
 ### Delivery Behavior
 
@@ -42,13 +42,14 @@ The table below lists the idle TTL knobs and their defaults. Registry deletes ru
 | Variable                | Default                               | Description                                                                                                                                                                                                                                                                                               |
 | ----------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MESH_ENUM_PORTS`       | unset                                 | Comma-separated list of extra loopback ports to probe for sibling OpenCode instances. Each probe gets a 1-second timeout. Max 8 ports. Peers merge the extra-port union of V1 status and V2 active views. |
+| `OPENCODE_MESH_SERVICE_STATE` | `<state>/opencode/service.json` | Explicit path to the v2 service state file mesh reads for port and password discovery. Overrides `XDG_STATE_HOME`; tests point it at a fixture. |
 | `OPENCODE_MESH_DB_PATH` | `~/.local/share/opencode/opencode.db` | Explicit path to the OpenCode discovery database. Used by `mesh_peers` for DB-grounded session existence.                                                                                                                                                                                                 |
 
 ### Authentication
 
 | Variable                          | Default      | Description                                                                                                                                                                                                                                             |
 | --------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENCODE_SERVER_PASSWORD`        | unset (none) | Server password. When set, all loopback requests include a `Basic` header: `base64(username:password)`.                                                                                                                                                 |
+| `OPENCODE_SERVER_PASSWORD`        | unset (none) | Server password. When set, all loopback requests include a `Basic` header: `base64(username:password)`. When unset, mesh falls back to the running v2 service's published password, so a v2 host needs no environment setup. |
 | `OPENCODE_SERVER_USERNAME`        | `"opencode"` | Username paired with `OPENCODE_SERVER_PASSWORD`.                                                                                                                                                                                                        |
 | `OPENCODE_MESH_KEYCHAIN_PROVIDER` | unset (off)  | Keychain password provider opt-in. Set to `"1"` to read the password from the macOS Keychain (service: `opencode-server-password`). Only reached when `OPENCODE_SERVER_PASSWORD` is unset. Keychain setup lives in `docs/getting-started.md` Section 8. |
 

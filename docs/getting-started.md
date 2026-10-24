@@ -364,13 +364,18 @@ One mesh root can span several OpenCode server processes on the same machine.
 
 ### Port configuration
 
-`OPENCODE_PORT` dials only; it never serves. The OpenCode server owns the port and answers `127.0.0.1` loopback legs. The default loopback port is `4096`. Override with `OPENCODE_PORT`:
+`OPENCODE_PORT` dials only; it never serves. The OpenCode server owns the port and answers `127.0.0.1` loopback legs. Resolution order is `OPENCODE_PORT`, then the running v2 background service's published URL, then `4096`:
 
 ```bash
 OPENCODE_PORT=4097 npx opencode-mesh status
 ```
 
-Status probes the single `OPENCODE_PORT` only; see [CLI status reference](cli.md#status).
+A v2 background service binds a random loopback port and writes it to
+`<state>/opencode/service.json`; mesh reads that file, so no environment setup
+is required on v2 hosts. A v1 server or `opencode serve --standalone` keeps the
+`4096` default. Override the file location with `OPENCODE_MESH_SERVICE_STATE`.
+
+Status probes the single resolved port only; see [CLI status reference](cli.md#status).
 
 ### Expose sibling ports
 
@@ -402,15 +407,22 @@ Sessions register on start. A quiet sibling reads `stale` until the 24-hour prun
 
 ### Auth modes
 
-| Mode             | What happens                              |
-| ---------------- | ----------------------------------------- |
-| `none`           | No password set. No auth header sent.     |
-| `env`            | Password from `OPENCODE_SERVER_PASSWORD`. |
-| `keychain-optin` | Password from OS Keychain (opt-in).       |
+| Mode             | What happens                                        |
+| ---------------- | --------------------------------------------------- |
+| `none`           | No password configured. No auth header sent.        |
+| `env`            | Password from `OPENCODE_SERVER_PASSWORD`.           |
+| `service`        | Password from the running v2 service state file.    |
+| `keychain-optin` | Password from OS Keychain (opt-in).                 |
+
+Precedence is `env`, then the Keychain when opted in, then the v2 service file.
+On a v2 host the service password is discovered automatically, so the common
+install sends authenticated requests with no environment setup at all.
 
 ### Env-based auth
 
-Default installs send no header until a password is set; `port.auth` reads `none` then.
+Default installs send no header unless a password is configured. On a v2 host
+the service password is read from the service state file, so `port.auth` reads
+`service` without any exports; elsewhere it reads `none` until a password is set.
 
 ```bash
 export OPENCODE_SERVER_PASSWORD='<server password>'

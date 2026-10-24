@@ -1,16 +1,17 @@
 // Copyright (c) 2026 DIVISION 7 | MI-7 (@divisionseven)
 // SPDX-License-Identifier: MIT
 // Host-free send executor core (no host-SDK imports; V1 shell + V2 adapter delegate here).
-import { OPENCODE_PORT, POST_TIMEOUT_MS, ROUTE_PROBE_TIMEOUT_MS } from "../constants.js";
+import { POST_TIMEOUT_MS, ROUTE_PROBE_TIMEOUT_MS, resolveOpencodePort } from "../constants.js";
 import { MeshError } from "../errors.js";
 import { formatMeshPrefix, meshPrefixLength, quarantineText } from "../frontmatter.js";
+import { isSpaShellResponse, isV1StatusResponse } from "../httpProbe.js";
 import { resolveReceiverWireDetailed } from "../identity.js";
 import { isSilent, resolveNoReply } from "../wake.js";
 import { assertBodySendable, assertSendable } from "../outbox.js";
 import { readRegistry } from "../registry.js";
 import { getServerAuthHeaderSync } from "../serverAuth.js";
 import {
-  activeUnion,
+  anyV2Server,
   locateSession,
   postV2Prompt,
   v2RowToTriple,
@@ -80,29 +81,29 @@ function isBroadcastEnabled(): boolean {
 /**
  * Loopback pin: dials only 127.0.0.1 probed ports; registry addresses never
  * dialed. Probe failure claims instead of throwing, so down servers queue.
- * v1 status first (unchanged single-port contract), then the v1-plus-v2
- * union across probed ports (v2 servers answer /api/session/active only).
+ * A v1 status answer admits on the v1 leg; otherwise any v2 API answer admits
+ * (an idle v2 server still accepts user admission), and only a host that is
+ * neither queues.
  */
 async function resolveRoute(viaAuth: string | undefined): Promise<"direct" | "claim"> {
   try {
     const headers: Record<string, string> = {};
     if (viaAuth) headers.Authorization = viaAuth;
-    const res = await fetch(`http://127.0.0.1:${OPENCODE_PORT}/session/status`, { headers, signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS) });
-    if (res.ok) return "direct";
-    // Why: degraded leg — any probe failure (timeout, refused, non-ok) claims
+    const res = await fetch(`http://127.0.0.1:${resolveOpencodePort()}/session/status`, { headers, signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS) });
+    if (isV1StatusResponse(res)) return "direct";
+    // Why: degraded leg — any probe failure (timeout, refused, SPA shell) claims
     // instead of throwing, so a down server queues instead of dropping.
   } catch {}
   try {
-    // v2-only union: the v1 pin above just missed, so probing it again
-    // would double the send-path status touches the broadcast gate pins.
-    if (await activeUnion(undefined, viaAuth, { v1: false })) return "direct";
+    // v2 host: the active view may be empty while the server still admits.
+    if (await anyV2Server(undefined, viaAuth)) return "direct";
   } catch {}
   return "claim";
 }
 
 /** Loopback POST base; never a registry address. */
 function resolvePostBase(): string {
-  return `http://127.0.0.1:${OPENCODE_PORT}`;
+  return `http://127.0.0.1:${resolveOpencodePort()}`;
 }
 
 /**
@@ -123,7 +124,7 @@ export async function fetchDirectRow(peerId: string, viaAuth: string | undefined
       headers,
       signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS),
     });
-    if (res.status !== 200) return { ok: false, reason: "direct-fetch-miss", status: res.status };
+    if (res.status !== 200 || isSpaShellResponse(res)) return { ok: false, reason: "direct-fetch-miss", status: res.status };
     try {
       return { ok: true, row: (await res.json()) as unknown };
     } catch {
@@ -312,7 +313,13 @@ export async function executeMeshSend(args: MeshSendArgs, ctx: MeshToolContext):
     // Every non-204 is typed; 429 retries, others are server-side with raw status.
     // Upstream 204-only NoContent success; live pair deferred, never superset.
     if (res.status === 429) throw new MeshError("PEER_BUSY_RETRY", `peer busy 429: ${peerId}`, { status: 429 });
-    if (res.status !== 204) throw new MeshError("SERVER_UNAVAILABLE", `promptAsync failed ${res.status}`, { status: res.status });
+    if (res.status !== 204) {
+      // v2 hosts answer the v1 prompt_async route with 405; a v2 admit beats a
+      // typed v1 failure. Null keeps the original fault for non-v2 hosts.
+      const admitted = await sendV2Direct(peerId, prefixed, viaAuth, wakeOpts);
+      if (admitted !== null) return admitted;
+      throw new MeshError("SERVER_UNAVAILABLE", `promptAsync failed ${res.status}`, { status: res.status });
+    }
     return JSON.parse(body).messageID as string;
   };
 

@@ -9,6 +9,7 @@
 // cores are the only callers.
 import { POST_TIMEOUT_MS, ROUTE_PROBE_TIMEOUT_MS } from "./constants.js";
 import { enumPorts } from "./enumerate.js";
+import { isSpaShellResponse } from "./httpProbe.js";
 import { assertBodySendable } from "./outbox.js";
 import { fetchSessionStatusMap, unwrapStatusMap } from "./registry.js";
 import { getServerAuthHeaderSync } from "./serverAuth.js";
@@ -86,6 +87,24 @@ export async function activeUnion(
   return Object.keys(merged).length > 0 ? merged : null;
 }
 
+/**
+ * True when a port serves the v2 API. Unlike the active view this accepts an
+ * empty map: a v2 server with no running turns is still reachable and still
+ * accepts user admission, so the send must not degrade to the outbox.
+ */
+export async function isV2Server(port: number, auth?: string): Promise<boolean> {
+  return (await fetchV2Active(port, auth)) !== null;
+}
+
+/** Any probed port answering the v2 API; false when none is a v2 host. */
+export async function anyV2Server(ports?: number[], auth?: string): Promise<boolean> {
+  const viaAuth = auth ?? getServerAuthHeaderSync();
+  for (const port of portsToProbe(ports)) {
+    if (await isV2Server(port, viaAuth)) return true;
+  }
+  return false;
+}
+
 /** One v2 session row; null on miss or unparseable body. */
 export async function fetchV2Session(
   port: number,
@@ -133,7 +152,7 @@ export async function locateSession(
         headers,
         signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS),
       });
-      if (res.status === 200) {
+      if (res.status === 200 && !isSpaShellResponse(res)) {
         try {
           return { kind: "v1", port, row: (await res.json()) as unknown };
         } catch {

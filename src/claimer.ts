@@ -4,14 +4,15 @@
 import {
   CLAIMER_BUSY_BASE_MS,
   CLAIMER_BUSY_JITTER_MS,
-  OPENCODE_PORT,
   OUTBOX_CLAIM_TIMEOUT_MS,
   OUTBOX_MAX_ATTEMPTS,
   OUTBOX_POLL_MS,
   POST_TIMEOUT_MS,
   ROUTE_PROBE_TIMEOUT_MS,
+  resolveOpencodePort,
 } from "./constants.js";
 import { formatMeshPrefix, quarantineText } from "./frontmatter.js";
+import { isV1StatusResponse } from "./httpProbe.js";
 import { resolveReceiverWireDetailed, type MissStep, type ReceiverWireState } from "./identity.js";
 import { getServerAuthHeaderSync } from "./serverAuth.js";
 import { isSilent, resolveNoReply } from "./wake.js";
@@ -299,12 +300,12 @@ async function pollClientlessRow(
     const auth = getServerAuthHeaderSync();
     const headers: Record<string, string> = {};
     if (auth) headers.Authorization = auth;
-    const res = await fetch(`http://127.0.0.1:${OPENCODE_PORT}/session/status`, {
+    const res = await fetch(`http://127.0.0.1:${resolveOpencodePort()}/session/status`, {
       headers,
       signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS),
     });
     probeStatus = res.status;
-    if (res.ok) route = "direct";
+    if (isV1StatusResponse(res)) route = "direct";
   } catch {
     route = "claim";
   }
@@ -383,7 +384,7 @@ async function tryDirectFallback(
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (auth) headers.Authorization = auth;
     if (directory) headers["x-opencode-directory"] = encodeURIComponent(directory);
-    const url = `http://127.0.0.1:${OPENCODE_PORT}/session/${row.target_session}/prompt_async?directory=${encodeURIComponent(directory)}`;
+    const url = `http://127.0.0.1:${resolveOpencodePort()}/session/${row.target_session}/prompt_async?directory=${encodeURIComponent(directory)}`;
     const body = JSON.stringify({
       agent: receiver.agent,
       parts: [{ type: "text", text: prefixed }],

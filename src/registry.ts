@@ -3,7 +3,8 @@
 // Mesh registry with STALE_TTL pruning and flock-guarded writes.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { DEFAULT_OPENCODE_PORT, FILE_MODE, LOCK_OUTER_ROUNDS, OPENCODE_PORT, ROUTE_PROBE_TIMEOUT_MS, STALE_TTL_MS, EVICT_GRACE_MS } from "./constants.js";
+import { DEFAULT_OPENCODE_PORT, FILE_MODE, LOCK_OUTER_ROUNDS, ROUTE_PROBE_TIMEOUT_MS, STALE_TTL_MS, EVICT_GRACE_MS, resolveOpencodePort } from "./constants.js";
+import { isV1StatusResponse } from "./httpProbe.js";
 import { getServerAuthHeaderSync } from "./serverAuth.js";
 import { ensureDir0700, writeAtomic } from "./fsAtomic.js";
 import { MeshError } from "./errors.js";
@@ -210,13 +211,13 @@ export function unwrapStatusMap(raw: unknown): Record<string, { type: string }> 
 }
 
 /** Fetch live status; null on failure, unwraps data wrapper via unwrapStatusMap. */
-export async function fetchSessionStatusMap(port: number = OPENCODE_PORT): Promise<Record<string, { type: string }> | null> {
+export async function fetchSessionStatusMap(port: number = resolveOpencodePort()): Promise<Record<string, { type: string }> | null> {
   try {
     const auth = getServerAuthHeaderSync();
     const headers: Record<string, string> = {};
     if (auth) headers.Authorization = auth;
     const res = await fetch(`http://127.0.0.1:${port}/session/status`, { headers, signal: AbortSignal.timeout(ROUTE_PROBE_TIMEOUT_MS) });
-    if (!res.ok) return null;
+    if (!isV1StatusResponse(res)) return null;
     const raw = (await res.json()) as unknown;
     return unwrapStatusMap(raw);
   } catch {
@@ -226,8 +227,9 @@ export async function fetchSessionStatusMap(port: number = OPENCODE_PORT): Promi
 
 /** Single-port guard: live map when one port answers, null on split or empty. */
 export async function fetchSinglePortStatusMap(): Promise<Record<string, { type: string }> | null> {
-  const primary = await fetchSessionStatusMap(OPENCODE_PORT);
-  if (OPENCODE_PORT === DEFAULT_OPENCODE_PORT) return primary && Object.keys(primary).length > 0 ? primary : null;
+  const port = resolveOpencodePort();
+  const primary = await fetchSessionStatusMap(port);
+  if (port === DEFAULT_OPENCODE_PORT) return primary && Object.keys(primary).length > 0 ? primary : null;
   const fallback = await fetchSessionStatusMap(DEFAULT_OPENCODE_PORT);
   const pKeys = primary ? Object.keys(primary) : [];
   const fKeys = fallback ? Object.keys(fallback) : [];
