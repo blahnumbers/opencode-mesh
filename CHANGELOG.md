@@ -8,6 +8,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Serve a mesh peer from Claude Code with `mesh-claude-bridge` (external peer
+  transport: rows queue for the peer, the bridge claims them, runs
+  `claude -p`, and Claude replies through the mesh CLI; claim heartbeat keeps
+  slow reviews from being requeued at the 30-second sweep; documented guardian
+  pattern in `docs/claude-code-bridge.md`)
+- `opencode-mesh register` accepts `--id`, `--agent`, `--transport`, and
+  `--directory`, and honours a non-default `SESSION_ID`, so external agents
+  hold a stable peer identity; `send` attributes the caller from its registry
+  row instead of the generic `cli` label
+
+
 ### Fixed
 
 - Fix v2 delivery on OpenCode >= 2.1.x by classifying the SPA shell as a

@@ -20,6 +20,7 @@ Technical lookup for commands, variables, stored shapes, and delivery paths with
 | [Configuration](configuration.md)  | Environment variables only with no config files            |
 | [Schema Reference](schema.md)      | Stored shapes for `registry.json` and `outbox.db`          |
 | [Transport Concepts](transport.md) | Loopback probe with direct or claim delivery choice        |
+| [Claude Code Bridge](claude-code-bridge.md) | Serve a mesh peer from Claude Code via external transport  |
 
 ## Examples
 

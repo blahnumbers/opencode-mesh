@@ -35,6 +35,8 @@ export interface RegistryEntry {
   sessionType?: string;
   /** Per-agent override tag naming the TTL class applied at delete time (audit taxonomy). */
   ttlOverrideTag?: string;
+  /** Delivery transport: absent for OpenCode sessions; "external" for bridge-served peers. */
+  transport?: string;
 }
 
 /** Normalize entry aliases: description↔summary, cwd↔directory, repo derived, title fallback. */

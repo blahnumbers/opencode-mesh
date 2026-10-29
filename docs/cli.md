@@ -68,20 +68,30 @@ opencode-mesh send ses_abc123 "silent update" --no-reply
 
 ### `register`
 
-Register the calling shell session in the mesh registry.
+Register the calling shell session, or an external agent identity, in the mesh registry.
 
 ```
-opencode-mesh register [<summary>]
+opencode-mesh register [--id <id>] [--agent <name>] [--transport external] [--directory <dir>] [<summary>]
 ```
 
-No flags. The summary defaults to `cli register` when omitted. Prints JSON with the assigned session ID and current peer count.
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--id <id>` | non-default `SESSION_ID`, else `cli-<epoch>` | Stable peer id (allowlist `[A-Za-z0-9_-]`, 1-64). |
+| `--agent <name>` | `cli` | Agent label shown in peers and sender headers. |
+| `--transport <kind>` | unset | `external` marks a peer served by a bridge (sends queue, no host route). |
+| `--directory <dir>` | current directory | Directory/repo scope stored on the row. |
+
+The summary defaults to `cli register` when omitted. Prints JSON with the assigned session ID and current peer count.
 
 ```bash
 opencode-mesh register "reviewer for dotfiles"
-# { "registered": "cli-<epoch>", "peers": 3 }
+# { "registered": "cli-<epoch>", "agent": "cli", "peers": 3 }
+
+SESSION_ID=claude-reviewer opencode-mesh register --transport external "Claude Code reviewer"
+# { "registered": "claude-reviewer", "agent": "cli", "transport": "external", "peers": 4 }
 ```
 
-Contract: `register` writes one `cli-<epoch>` row (`agent: "cli"`, current directory, supplied summary or `cli register`) and prints `{ registered, peers }`. Blast radius: one registry row; no config, no skill, no network.
+Contract: `register` writes one row keyed by the resolved id and prints `{ registered, agent, transport?, peers }`. `send` attributes the caller from its registry row, so a registered external agent replies under its own agent name. Blast radius: one registry row; no config, no skill, no network.
 
 ### `install`
 

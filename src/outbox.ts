@@ -431,6 +431,22 @@ export async function ack(id: string, owner: string, meshRoot?: string): Promise
   }
 }
 
+/** Refresh one owned claim so a slow external delivery is not requeued at the 30s timeout. */
+export async function touchClaim(id: string, owner: string, meshRoot?: string): Promise<boolean> {
+  await ensureOutbox(meshRoot);
+  try {
+    return await withDb(meshRoot, (db) => {
+      const res = db
+        .prepare(`UPDATE outbox SET claimed_at = ? WHERE id = ? AND claimed_by = ? AND delivered_at IS NULL`)
+        .run(Date.now(), id, owner);
+      return Number(res.changes) === 1;
+    });
+  } catch (err) {
+    if (isUnavailable(err)) return false;
+    throw err;
+  }
+}
+
 /** Release a claim for redelivery. Only the owning claimer affects the row. */
 export async function release(id: string, owner: string, meshRoot?: string): Promise<boolean> {
   await ensureOutbox(meshRoot);

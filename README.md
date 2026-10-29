@@ -387,6 +387,20 @@ Every message travels over loopback (`127.0.0.1`). The transport path depends on
 
 [See Full Multi-Instance Guide →][multi-instance-guide]
 
+## Bridges (non-OpenCode agents)
+
+Mesh can serve a peer from another agent runtime. The bundled Claude Code
+bridge registers a peer with `transport: "external"`, drains that peer's
+outbox rows, and injects each message into a Claude Code session; Claude
+replies through the same mesh CLI, so receipts, the sender header, and retry
+semantics stay identical. No host route or plugin is needed on the Claude side.
+
+```bash
+npx mesh-claude-bridge --peer claude-reviewer --model opus --cwd /path/to/repo
+```
+
+[Claude Code bridge guide](docs/claude-code-bridge.md)
+
 ## Dependencies
 
 > A habit adopted from our [PKG-Defender][pkg-defender] project, each dependency includes a pre-crafted audit link for supply chain scrutiny. Click through before installing in sensitive environments.

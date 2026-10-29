@@ -3,6 +3,7 @@
 // Host-free send executor core (no host-SDK imports; V1 shell + V2 adapter delegate here).
 import { POST_TIMEOUT_MS, ROUTE_PROBE_TIMEOUT_MS, resolveOpencodePort } from "../constants.js";
 import { MeshError } from "../errors.js";
+import { isExternalPeer } from "../external.js";
 import { formatMeshPrefix, meshPrefixLength, quarantineText } from "../frontmatter.js";
 import { isSpaShellResponse, isV1StatusResponse } from "../httpProbe.js";
 import { resolveReceiverWireDetailed } from "../identity.js";
@@ -344,7 +345,9 @@ export async function executeMeshSend(args: MeshSendArgs, ctx: MeshToolContext):
   ): Promise<{ id: string; via: string }> => {
     sanitizeSessionId(peerId);
     sanitizeSessionId(from);
-    if (route === "direct") {
+    // External peers are served by their own bridge draining the outbox; the
+    // host has no session route for them, so a direct leg would 404/405.
+    if (route === "direct" && !isExternalPeer(reg[peerId])) {
       try {
         const id = await sendDirect(peerId, from, msgText, viaAuth, dir, { silent, noReply });
         if (id !== null) return { id, via: "admitted" };

@@ -13,7 +13,7 @@ function printHelp() {
   console.log(`opencode-mesh ${PKG.version}`);
   console.log("Usage: opencode-mesh peers [--include-self] [--json]");
   console.log("       opencode-mesh send <target|all> <text...> [--no-reply] [--broadcast] [--json]");
-  console.log("       opencode-mesh register <summary>");
+  console.log("       opencode-mesh register [--id <id>] [--agent <name>] [--transport external] [--directory <dir>] <summary>");
   console.log("       opencode-mesh install [--dry-run]");
   console.log("       opencode-mesh uninstall [--purge] [--yes] [--restore]");
   console.log("       opencode-mesh status [--json]");
@@ -24,7 +24,7 @@ if (args.includes("--help") || args.includes("-h")) {
   const verbs = {
     peers: "Usage: opencode-mesh peers [--include-self] [--json]",
     send: "Usage: opencode-mesh send <target|all> <text...> [--no-reply] [--broadcast] [--json]",
-    register: "Usage: opencode-mesh register <summary>",
+    register: "Usage: opencode-mesh register [--id <id>] [--agent <name>] [--transport external] [--directory <dir>] <summary>",
     install: "Usage: opencode-mesh install [--dry-run]",
     uninstall: "Usage: opencode-mesh uninstall [--purge] [--yes] [--restore]",
     status: "Usage: opencode-mesh status [--json]",
@@ -249,9 +249,13 @@ if (cmd === "install") {
   // 204 where reachable, outbox claim otherwise). Guards live in the owner.
   const cliSession = process.env.SESSION_ID ?? "cli";
   try {
+    // Caller attribution follows the registered peer row, so an external
+    // agent (Claude bridge) replies as "claude", not the generic "cli".
+    const { readRegistry } = await import("../dist/registry.js");
+    const cliEntry = (await readRegistry().catch(() => ({})))[cliSession];
     const out = await mesh_send.execute(
       { target: broadcast || target === "all" ? "all" : target, text, noReply, broadcast: broadcast || target === "all" },
-      { sessionID: cliSession, directory: process.cwd(), agent: "cli" }
+      { sessionID: cliSession, directory: process.cwd(), agent: cliEntry?.agent ?? "cli" }
     );
     console.log(out.output);
   } catch (e) {
@@ -259,14 +263,49 @@ if (cmd === "install") {
     process.exit(1);
   }
 } else if (cmd === "register") {
-  const { atomicUpdateRegistry, normalizeEntry } = await import("../dist/registry.js");
-  const { readRegistry } = await import("../dist/registry.js");
+  const { atomicUpdateRegistry, normalizeEntry, readRegistry } = await import("../dist/registry.js");
+  // Flags are consumed so the remaining words form the summary. `--id` (or a
+  // non-default SESSION_ID) gives a stable identity to external agents such as
+  // a Claude Code bridge; the default stays a unique cli-<epoch> row.
+  const takeFlag = (name) => {
+    const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+    if (i === -1) return undefined;
+    const raw = args[i];
+    if (raw.includes("=")) {
+      args.splice(i, 1);
+      return raw.slice(raw.indexOf("=") + 1);
+    }
+    const value = args[i + 1];
+    if (value && !value.startsWith("--")) {
+      args.splice(i, 2);
+      return value;
+    }
+    args.splice(i, 1);
+    return undefined;
+  };
+  const envId = process.env.SESSION_ID && process.env.SESSION_ID !== "cli" ? process.env.SESSION_ID : undefined;
+  const id = takeFlag("id") ?? envId ?? `cli-${Date.now()}`;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+    console.error(`register: invalid id "${id}" (allow [A-Za-z0-9_-], 1-64)`);
+    process.exit(1);
+  }
+  const agent = takeFlag("agent") ?? "cli";
+  const transport = takeFlag("transport");
+  const directory = takeFlag("directory") ?? process.cwd();
   const summary = args.slice(1).join(" ") || "cli register";
-  const id = `cli-${Date.now()}`;
-  const entry = { sessionId: id, agent: "cli", summary, description: summary, title: summary, directory: process.cwd(), updatedAt: Date.now() };
+  const entry = {
+    sessionId: id,
+    agent,
+    summary,
+    description: summary,
+    title: summary,
+    directory,
+    updatedAt: Date.now(),
+    ...(transport ? { transport } : {}),
+  };
   await atomicUpdateRegistry((reg) => { reg[id] = normalizeEntry(entry); });
   const reg = await readRegistry().catch(() => ({}));
-  console.log(JSON.stringify({ registered: id, peers: Object.keys(reg).length }, null, 2));
+  console.log(JSON.stringify({ registered: id, agent, ...(transport ? { transport } : {}), peers: Object.keys(reg).length }, null, 2));
 } else if (cmd === "gc") {
   const json = args.includes("--json");
   const { runGc } = await import("../dist/gc.js");

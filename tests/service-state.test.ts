@@ -65,6 +65,9 @@ describe("service state discovery", () => {
     expect(readServiceState()).toBeNull();
     await writeState({ url: "http://127.0.0.1", password: "pw" });
     expect(readServiceState()).toBeNull();
+    await writeFile(join(root, "service.json"), '"just a string"', "utf8");
+    resetServiceStateCache();
+    expect(readServiceState()).toBeNull();
   });
 
   it("re-reads a rewritten file instead of memoizing the first port", async () => {

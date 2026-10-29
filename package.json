@@ -36,7 +36,8 @@
   "main": "./dist/plugin/opencode-mesh.js",
   "types": "./dist/plugin/opencode-mesh.d.ts",
   "bin": {
-    "opencode-mesh": "bin/cli.js"
+    "opencode-mesh": "bin/cli.js",
+    "mesh-claude-bridge": "bin/mesh-claude-bridge.js"
   },
   "exports": {
     ".": {
