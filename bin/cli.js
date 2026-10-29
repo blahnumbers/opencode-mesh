@@ -17,6 +17,8 @@ function printHelp() {
   console.log("       opencode-mesh install [--dry-run]");
   console.log("       opencode-mesh uninstall [--purge] [--yes] [--restore]");
   console.log("       opencode-mesh status [--json]");
+  console.log("       opencode-mesh inbox --peer <id> [--claim] [--wake] [--owner <o>] [--limit <n>]");
+  console.log("       opencode-mesh ack|release <id...> [--owner <o>]");
   console.log("       opencode-mesh gc [--json]");
   console.log('State root: OPENCODE_MESH_ROOT→XDG_STATE_HOME→~/.local/state/opencode/mesh');
 }
@@ -29,6 +31,9 @@ if (args.includes("--help") || args.includes("-h")) {
     uninstall: "Usage: opencode-mesh uninstall [--purge] [--yes] [--restore]",
     status: "Usage: opencode-mesh status [--json]",
     gc: "Usage: opencode-mesh gc [--json]",
+    inbox: "Usage: opencode-mesh inbox --peer <id> [--claim] [--wake] [--owner <o>] [--limit <n>]",
+    ack: "Usage: opencode-mesh ack <id...> [--owner <o>]",
+    release: "Usage: opencode-mesh release <id...> [--owner <o>]",
   };
   if (args[0] && verbs[args[0]]) { console.log(`opencode-mesh ${PKG.version}`); console.log(verbs[args[0]]); process.exit(0); }
   printHelp(); process.exit(0);
@@ -306,6 +311,63 @@ if (cmd === "install") {
   await atomicUpdateRegistry((reg) => { reg[id] = normalizeEntry(entry); });
   const reg = await readRegistry().catch(() => ({}));
   console.log(JSON.stringify({ registered: id, agent, ...(transport ? { transport } : {}), peers: Object.keys(reg).length }, null, 2));
+} else if (cmd === "inbox") {
+  // Bridge/mod read path: peek or claim pending rows for one external peer.
+  const value = (name, fallback) => {
+    const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+    if (i === -1) return fallback;
+    const raw = args[i];
+    if (raw.includes("=")) return raw.slice(raw.indexOf("=") + 1);
+    const next = args[i + 1];
+    return next && !next.startsWith("--") ? next : fallback;
+  };
+  const peer = value("peer");
+  if (!peer) { console.error("inbox --peer <id> required"); process.exit(1); }
+  const owner = value("owner", `${peer}-cli`);
+  const limitRaw = Number(value("limit", "20"));
+  const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 20;
+  const wakeOnly = args.includes("--wake");
+  const claimRows = args.includes("--claim");
+  const { claim, listPending } = await import("../dist/outbox.js");
+  try {
+    const rows = claimRows
+      ? await claim([peer], owner, limit, undefined, { wakeOnly })
+      : await listPending([peer], limit, { wakeOnly });
+    console.log(JSON.stringify(rows.map((r) => ({
+      id: r.id,
+      from_session: r.from_session,
+      from_agent: r.from_agent,
+      text: r.text,
+      silent: r.silent === 1,
+      created_at: r.created_at,
+      attempts: r.attempts,
+    })), null, 2));
+  } catch (e) {
+    console.error(e.message ?? String(e));
+    process.exit(1);
+  }
+} else if (cmd === "ack" || cmd === "release") {
+  const ownerIdx = args.indexOf("--owner");
+  const owner = ownerIdx !== -1 && args[ownerIdx + 1] ? args[ownerIdx + 1] : "cli";
+  const ids = [];
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--owner") { i++; continue; }
+    if (a.startsWith("--")) continue;
+    ids.push(a);
+  }
+  if (ids.length === 0) {
+    console.error(`${cmd} <id...> [--owner <o>] required`);
+    process.exit(1);
+  }
+  const { ack, release } = await import("../dist/outbox.js");
+  const ok = [];
+  const missed = [];
+  for (const id of ids) {
+    const done = cmd === "ack" ? await ack(id, owner) : await release(id, owner);
+    (done ? ok : missed).push(id);
+  }
+  console.log(JSON.stringify({ [cmd === "ack" ? "acked" : "released"]: ok, missed }, null, 2));
 } else if (cmd === "gc") {
   const json = args.includes("--json");
   const { runGc } = await import("../dist/gc.js");

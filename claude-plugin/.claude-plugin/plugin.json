@@ -1,0 +1,6 @@
+{
+  "name": "mesh-guardian",
+  "version": "0.1.0",
+  "description": "OpenCode mesh peer inside Claude Code: wakes this session with incoming messages and replies through the mesh CLI",
+  "author": { "name": "Minibash" }
+}

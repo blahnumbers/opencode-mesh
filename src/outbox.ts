@@ -378,7 +378,8 @@ export async function claim(
   targetSessions: string[],
   owner: string,
   limitPerTarget = 1,
-  meshRoot?: string
+  meshRoot?: string,
+  opts?: { wakeOnly?: boolean }
 ): Promise<OutboxRow[]> {
   const ids = [...new Set(targetSessions)];
   for (const id of ids) sanitizeSessionId(id);
@@ -387,8 +388,11 @@ export async function claim(
   try {
     return await withDb(meshRoot, (db) => {
       const claimed: OutboxRow[] = [];
+      // Wake-only claim leaves silent deposits queued for a peek (mesh_inbox),
+      // so a history-only row never starts a turn by itself.
+      const silentFilter = opts?.wakeOnly ? " AND silent = 0" : "";
       const pick = db.prepare(
-        `SELECT * FROM outbox WHERE target_session = ? AND claimed_by IS NULL AND delivered_at IS NULL AND fail_reason IS NULL ORDER BY seq ASC LIMIT ?`
+        `SELECT * FROM outbox WHERE target_session = ? AND claimed_by IS NULL AND delivered_at IS NULL AND fail_reason IS NULL${silentFilter} ORDER BY seq ASC LIMIT ?`
       );
       const take = db.prepare(
         `UPDATE outbox SET claimed_by = ?, claimed_at = ? WHERE id = ? AND claimed_by IS NULL AND delivered_at IS NULL AND fail_reason IS NULL`
@@ -410,6 +414,40 @@ export async function claim(
         }
       }
       return claimed;
+    });
+  } catch (err) {
+    if (isUnavailable(err)) return [];
+    throw err;
+  }
+}
+
+/**
+ * Read-only peek at undelivered rows for a peer (no claim, no attempt bump).
+ * Used by `opencode-mesh inbox` and the Claude Code mod's mesh_inbox tool.
+ */
+export async function listPending(
+  targetSessions: string[],
+  limit = 20,
+  opts?: { wakeOnly?: boolean },
+  meshRoot?: string
+): Promise<OutboxRow[]> {
+  const ids = [...new Set(targetSessions)];
+  for (const id of ids) sanitizeSessionId(id);
+  if (ids.length === 0 || limit < 1) return [];
+  await ensureOutbox(meshRoot);
+  try {
+    return await withDb(meshRoot, (db) => {
+      const silentFilter = opts?.wakeOnly ? " AND silent = 0" : "";
+      const rows: OutboxRow[] = [];
+      // Peek is "available now": a row another owner is already delivering is
+      // in flight, not pending, so it stays out of the inbox view.
+      const pick = db.prepare(
+        `SELECT * FROM outbox WHERE target_session = ? AND claimed_by IS NULL AND delivered_at IS NULL AND fail_reason IS NULL${silentFilter} ORDER BY seq ASC LIMIT ?`
+      );
+      for (const target of ids) {
+        rows.push(...(pick.all(target, limit) as unknown as OutboxRow[]));
+      }
+      return rows;
     });
   } catch (err) {
     if (isUnavailable(err)) return [];

@@ -19,6 +19,13 @@ and this project adheres to
   `--directory`, and honours a non-default `SESSION_ID`, so external agents
   hold a stable peer identity; `send` attributes the caller from its registry
   row instead of the generic `cli` label
+- Add a Claude Code mod (`claude-plugin/`) that makes an interactive session a
+  mesh peer: it registers `transport: external`, polls the inbox, and injects
+  wake messages with `$.prompt.submit({ asUser: true })` into the same
+  conversation, with `mesh_send`/`mesh_peers`/`mesh_inbox` tools
+- Add `opencode-mesh inbox --peer <id> [--claim] [--wake]` for a read-only peek
+  or a wake-only claim, plus `ack` and `release` verbs; `claim` grew a
+  `wakeOnly` option and `listPending` never claims or bumps attempts
 
 
 ### Fixed

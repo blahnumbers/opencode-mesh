@@ -1,0 +1,4 @@
+{
+  "description": "OpenCode mesh peer: polls the durable inbox and injects messages as user turns",
+  "modules": ["./register.js"]
+}

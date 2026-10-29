@@ -399,6 +399,15 @@ semantics stay identical. No host route or plugin is needed on the Claude side.
 npx mesh-claude-bridge --peer claude-reviewer --model opus --cwd /path/to/repo
 ```
 
+There are two ways to attach Claude Code:
+
+- **Mod (same session)**: load `claude-plugin/` with `--plugin-dir` and the
+  session itself becomes the peer. Incoming messages start a turn in the
+  conversation you are already using; no second process.
+- **Bridge (headless)**: run `mesh-claude-bridge` for unattended sessions,
+  cron, or when nobody is attached.
+
+[Claude Code mod guide](docs/claude-code-mod.md) ·
 [Claude Code bridge guide](docs/claude-code-bridge.md)
 
 ## Dependencies

@@ -20,3 +20,6 @@ TODO.md
 .pytest_cache/
 .ruff_cache/
 .srclight/
+
+# Claude Code generated mod type declarations (version-specific)
+claude-plugin/.claude-plugin/types/

@@ -50,6 +50,7 @@
     }
   },
   "files": [
+    "claude-plugin",
     "dist",
     "LICENSE",
     "README.md",

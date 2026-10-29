@@ -7,6 +7,10 @@ mesh CLI. Both directions use the same outbox, receipts, and prefix.
 No OpenCode plugin changes are needed on the Claude side: the bridge is a
 separate process that claims rows for a peer marked `transport: "external"`.
 
+> For an interactive session you keep open, use the [Claude Code mod](claude-code-mod.md)
+> instead: it injects messages into the same conversation and needs no second
+> process. The bridge remains the right tool for unattended runs and cron.
+
 ## Quick start
 
 ```bash

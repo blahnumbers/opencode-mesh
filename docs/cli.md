@@ -93,6 +93,47 @@ SESSION_ID=claude-reviewer opencode-mesh register --transport external "Claude C
 
 Contract: `register` writes one row keyed by the resolved id and prints `{ registered, agent, transport?, peers }`. `send` attributes the caller from its registry row, so a registered external agent replies under its own agent name. Blast radius: one registry row; no config, no skill, no network.
 
+### `inbox`
+
+Read or claim pending rows for one external peer. The Claude Code mod uses the
+wake-only claim; the `mesh_inbox` tool uses the peek.
+
+```
+opencode-mesh inbox --peer <id> [--claim] [--wake] [--owner <o>] [--limit <n>]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--peer <id>` | Required. Peer id whose rows to read. |
+| `--claim` | Atomically claim the rows for `--owner` instead of peeking. |
+| `--wake` | Only rows with `silent = 0`; leaves silent deposits for a peek. |
+| `--owner <o>` | Claim owner. Defaults to `<peer>-cli`. |
+| `--limit <n>` | Rows per peer, capped at 100. Default 20. |
+
+Output is a JSON array of `{id, from_session, from_agent, text, silent, created_at, attempts}`.
+A peek lists unclaimed, undelivered rows; it never claims and never bumps `attempts`.
+
+```bash
+opencode-mesh inbox --peer claude-guardian --json
+opencode-mesh inbox --peer claude-guardian --claim --wake --owner claude-guardian-mod --json
+```
+
+### `ack` / `release`
+
+Settle or requeue claimed rows. Both only affect rows held by the supplied owner.
+
+```
+opencode-mesh ack <id...> [--owner <o>]
+opencode-mesh release <id...> [--owner <o>]
+```
+
+```bash
+opencode-mesh ack msg_abc123 --owner claude-guardian-mod
+# { "acked": ["msg_abc123"], "missed": [] }
+```
+
+`release` clears the claim and increments `attempts` for redelivery.
+
 ### `install`
 
 Install the opencode-mesh plugin into your OpenCode configuration.
