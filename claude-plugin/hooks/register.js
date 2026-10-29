@@ -5,22 +5,29 @@
 // The mod polls the mesh outbox every two seconds, claims one wake message,
 // and submits it to the live session with $.prompt.submit({ asUser: true }).
 // That starts a turn in the same conversation the user is typing in, so no
-// second process, session fork, or headless bridge is involved. Silent
-// deposits stay in the inbox for the mesh_inbox tool instead of waking.
+// second process, session fork, or headless bridge is involved.
+//
+// Silent deposits (mesh_send with silent/noReply) do not start a turn by
+// default. Set MESH_CLAUDE_WAKE_SILENT=1 to deliver them too, with the
+// (SILENT) marker in the header. Otherwise they stay for the mesh_inbox tool.
 //
 // Peer id: MESH_CLAUDE_PEER (default claude-guardian).
 // Mesh CLI: MESH_CLI, else ../bin/cli.js from the plugin root.
 
 const DEFAULT_PEER = "claude-guardian";
 const POLL_MS = 2000;
+const HEARTBEAT_MS = 5 * 60 * 1000;
 const RETRY_MS = 30000;
+const ERROR_LOG_MS = 60000;
 
 let peer = DEFAULT_PEER;
 let owner = DEFAULT_PEER + "-mod";
 let cli = "";
+let wakeSilent = false;
 let busy = false;
 let submitting = false;
 let retryAt = 0;
+let lastErrorAt = 0;
 
 function parseRows(stdout) {
   try {
@@ -31,14 +38,45 @@ function parseRows(stdout) {
   }
 }
 
+function errorText(error) {
+  return String(error && error.message ? error.message : error);
+}
+
 async function mesh($, args) {
   // SESSION_ID makes the CLI attribute the call to this peer instead of the
   // generic "cli" identity (which the direct leg would quarantine).
   return await $.process.run(["node", cli, ...args], { env: { SESSION_ID: peer } });
 }
 
+async function registerPeer($) {
+  try {
+    const registered = await mesh($, [
+      "register",
+      "--id",
+      peer,
+      "--agent",
+      "claude",
+      "--transport",
+      "external",
+      "Claude Code guardian",
+    ]);
+    if (registered.exitCode !== 0) {
+      $.ui.log("mesh: register exited " + registered.exitCode + ": " + registered.stderr);
+    }
+  } catch (error) {
+    $.ui.log("mesh: register failed: " + errorText(error));
+  }
+}
+
 function formatMessage(row) {
-  const header = "[OC-MESH | SENDER: " + row.from_agent + " - " + row.from_session + "]";
+  const header =
+    "[OC-MESH | SENDER" +
+    (row.silent ? " (SILENT)" : "") +
+    ": " +
+    row.from_agent +
+    " - " +
+    row.from_session +
+    "]";
   return (
     header +
     "\n\n" +
@@ -53,19 +91,15 @@ async function poll($) {
   if (busy || submitting || Date.now() < retryAt) return;
   let listed;
   try {
-    listed = await mesh($, [
-      "inbox",
-      "--peer",
-      peer,
-      "--claim",
-      "--wake",
-      "--owner",
-      owner,
-      "--json",
-      "--limit",
-      "1",
-    ]);
-  } catch {
+    const args = ["inbox", "--peer", peer, "--claim"];
+    if (!wakeSilent) args.push("--wake");
+    args.push("--owner", owner, "--json", "--limit", "1");
+    listed = await mesh($, args);
+  } catch (error) {
+    if (Date.now() - lastErrorAt > ERROR_LOG_MS) {
+      lastErrorAt = Date.now();
+      $.ui.log("mesh: inbox failed: " + errorText(error));
+    }
     return;
   }
   const rows = parseRows(listed.stdout);
@@ -73,6 +107,7 @@ async function poll($) {
   const row = rows[0];
   submitting = true;
   busy = true;
+  $.ui.log("mesh: injecting " + row.id + " from " + row.from_session);
   try {
     const answer = await $.prompt.submit({ text: formatMessage(row), asUser: true });
     if (answer && answer.drop) {
@@ -90,7 +125,7 @@ async function poll($) {
     try {
       await mesh($, ["release", row.id, "--owner", owner]);
     } catch {}
-    $.ui.log("mesh: delivery deferred: " + String(error && error.message ? error.message : error));
+    $.ui.log("mesh: delivery deferred: " + errorText(error));
   } finally {
     submitting = false;
   }
@@ -100,6 +135,7 @@ export function register(on) {
   on("session.start", async ($, e, next) => {
     peer = (await $.env.get("MESH_CLAUDE_PEER")) || DEFAULT_PEER;
     owner = peer + "-mod";
+    wakeSilent = (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1";
     const root = (await $.env.get("CLAUDE_PLUGIN_ROOT")) || "";
     cli = (await $.env.get("MESH_CLI")) || root + "/../bin/cli.js";
 
@@ -127,35 +163,45 @@ export function register(on) {
     await $.tool.register({
       name: "mesh_inbox",
       description:
-        "Peek at pending mesh messages for this session without marking them read (includes silent deposits).",
+        "Read pending mesh messages for this session without marking them read (includes silent deposits).",
       inputSchema: { type: "object", properties: {}, required: [] },
     });
 
-    $.ui.log("mesh: peer=" + peer + " cli=" + cli);
-    try {
-      const registered = await mesh($, [
-        "register",
-        "--id",
-        peer,
-        "--agent",
-        "claude",
-        "--transport",
-        "external",
-        "Claude Code guardian",
-      ]);
-      if (registered.exitCode !== 0) {
-        $.ui.log("mesh: register exited " + registered.exitCode + ": " + registered.stderr);
-      }
-    } catch (error) {
-      $.ui.log("mesh: register failed: " + String(error && error.message ? error.message : error));
-    }
+    await $.command.register({
+      name: "mesh",
+      description: "Show this mesh peer's pending messages and wake-silent setting",
+    });
 
+    $.ui.log("mesh: peer=" + peer + " cli=" + cli + (wakeSilent ? " (wake-silent)" : ""));
+    await registerPeer($);
     $.clock.every(POLL_MS, () => poll($));
+    $.clock.every(HEARTBEAT_MS, () => registerPeer($));
     return next(e);
   }).catch(async ($, e, next) => {
     // A failed init must never block the user's session.
     $.ui.log("mesh: init failed: " + String(next.error && next.error.kind ? next.error.kind : "error"));
     return next(e);
+  });
+
+  on("command.run", { command: "mesh" }, async ($) => {
+    const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
+    const rows = parseRows(pending.stdout);
+    const lines = [
+      "mesh peer: " + peer,
+      "pending: " + rows.length + (wakeSilent ? " (wake-silent on)" : " (silent rows wait for mesh_inbox)"),
+    ];
+    for (const row of rows.slice(0, 5)) {
+      lines.push(
+        "- " +
+          (row.silent ? "[silent] " : "") +
+          row.from_agent +
+          " " +
+          row.from_session +
+          ": " +
+          row.text.slice(0, 80).replace(/\s+/g, " "),
+      );
+    }
+    return { text: lines.join("\n") };
   });
 
   on("prompt.submit", async ($, e, next) => {

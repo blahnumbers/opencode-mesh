@@ -26,6 +26,9 @@ and this project adheres to
 - Add `opencode-mesh inbox --peer <id> [--claim] [--wake]` for a read-only peek
   or a wake-only claim, plus `ack` and `release` verbs; `claim` grew a
   `wakeOnly` option and `listPending` never claims or bumps attempts
+- The Claude Code mod refreshes its peer row every five minutes, logs claim and
+  poll failures, adds `/mesh`, and can deliver silent deposits as turns with
+  `MESH_CLAUDE_WAKE_SILENT=1`
 
 
 ### Fixed
