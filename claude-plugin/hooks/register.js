@@ -221,19 +221,45 @@ export function register(on) {
   });
 
   on("tool.call", { tool: "mcp__mesh-guardian__mesh_send" }, async ($, e) => {
-    const args = ["send", e.target, e.text, "--json"];
-    if (e.silent) args.push("--no-reply");
-    const res = await mesh($, args);
-    return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_send failed" };
+    // "message" is accepted as an alias: models sometimes pick it over "text",
+    // and an undefined argv entry makes process.run throw, which the host
+    // reports as "no tool.call hook answered".
+    const text =
+      typeof e.text === "string" ? e.text : typeof e.message === "string" ? e.message : "";
+    if (typeof e.target !== "string" || e.target.length === 0) {
+      return { result: 'mesh_send needs target: the "ses_..." id or external peer id.' };
+    }
+    if (text.length === 0) {
+      return {
+        result:
+          'mesh_send needs the body in "text" (for example {"target":"ses_...","text":"..."}); "message" is accepted as an alias.',
+      };
+    }
+    try {
+      const args = ["send", e.target, text, "--json"];
+      if (e.silent) args.push("--no-reply");
+      const res = await mesh($, args);
+      return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_send failed" };
+    } catch (error) {
+      return { result: "mesh_send failed: " + errorText(error) };
+    }
   });
 
   on("tool.call", { tool: "mcp__mesh-guardian__mesh_peers" }, async ($) => {
-    const res = await mesh($, ["peers", "--json"]);
-    return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_peers failed" };
+    try {
+      const res = await mesh($, ["peers", "--json"]);
+      return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_peers failed" };
+    } catch (error) {
+      return { result: "mesh_peers failed: " + errorText(error) };
+    }
   });
 
   on("tool.call", { tool: "mcp__mesh-guardian__mesh_inbox" }, async ($) => {
-    const res = await mesh($, ["inbox", "--peer", peer, "--json"]);
-    return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_inbox failed" };
+    try {
+      const res = await mesh($, ["inbox", "--peer", peer, "--json"]);
+      return { result: res.exitCode === 0 ? res.stdout : res.stderr || "mesh_inbox failed" };
+    } catch (error) {
+      return { result: "mesh_inbox failed: " + errorText(error) };
+    }
   });
 }
