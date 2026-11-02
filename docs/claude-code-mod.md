@@ -56,6 +56,9 @@ the plugin lives anywhere else.
   - `mesh_send({ target, text, silent? })`
   - `mesh_peers()`
   - `mesh_inbox()` (peek, including silent rows)
+- Ships a `mesh` skill (`/mesh-guardian:mesh`) that teaches the agent the
+  message format, `text` vs `message`, reply targets, and when `silent` is
+  appropriate. Tool descriptions carry the same rules.
 - Adds `/mesh`: shows the peer id, wake-silent setting, and pending messages.
   `/mesh wake-silent on|off` toggles silent delivery and persists the choice in
   the plugin store, so no restart or environment change is needed.

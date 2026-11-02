@@ -32,6 +32,9 @@ and this project adheres to
 - The Claude Code mod adds a persisted `/mesh wake-silent on|off` toggle and a
   `mesh: N pending` status line, so silent deposits are visible and can be
   woken without a restart
+- The Claude Code mod ships a `mesh` skill and self-documenting tool
+  descriptions: reply to the header session id, put the body in `text`
+  (`message` accepted), and omit `silent` for anything that needs action
 
 
 ### Fixed

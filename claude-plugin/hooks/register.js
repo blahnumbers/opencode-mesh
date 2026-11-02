@@ -84,7 +84,7 @@ function formatMessage(row) {
     row.text +
     '\n\n---\n(mesh) Reply to this sender with the mesh_send tool: target "' +
     row.from_session +
-    '".'
+    '". See the mesh skill for conventions.'
   );
 }
 
@@ -161,13 +161,20 @@ export function register(on) {
     await $.tool.register({
       name: "mesh_send",
       description:
-        "Send a message to another OpenCode mesh peer. Use the session id from a message header or mesh_peers.",
+        "Send a message to another OpenCode mesh peer. target is the exact ses_... id from an [OC-MESH | SENDER] header (or an external peer id). Put the body in text; message is accepted as an alias. Omit silent for anything that needs a reply or action; silent:true is history-only and will not wake the peer.",
       inputSchema: {
         type: "object",
         properties: {
           target: { type: "string", description: "Peer session id (ses_...) or external peer id" },
-          text: { type: "string", description: "Body text only; the mesh adds the sender header" },
-          silent: { type: "boolean", description: "Deposit without waking the target agent" },
+          text: {
+            type: "string",
+            description: "Message body only; the mesh adds the sender header. Use text (message is an alias).",
+          },
+          silent: {
+            type: "boolean",
+            description:
+              "History-only deposit: the peer will NOT start a turn. Omit for review requests, verdicts, questions, handoffs, or anything needing action.",
+          },
         },
         required: ["target", "text"],
       },
@@ -182,7 +189,7 @@ export function register(on) {
     await $.tool.register({
       name: "mesh_inbox",
       description:
-        "Read pending mesh messages for this session without marking them read (includes silent deposits).",
+        "Read pending mesh messages for this session without marking them read. Includes silent deposits, which do not start turns on their own.",
       inputSchema: { type: "object", properties: {}, required: [] },
     });
 
