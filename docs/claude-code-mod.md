@@ -57,6 +57,10 @@ the plugin lives anywhere else.
   - `mesh_peers()`
   - `mesh_inbox()` (peek, including silent rows)
 - Adds `/mesh`: shows the peer id, wake-silent setting, and pending messages.
+  `/mesh wake-silent on|off` toggles silent delivery and persists the choice in
+  the plugin store, so no restart or environment change is needed.
+- A status line under the prompt shows `mesh: N pending` when messages are
+  waiting, including silent ones.
 
 The injected text keeps the wire header:
 
@@ -80,8 +84,8 @@ opencode-mesh inbox --peer claude-guardian --json
 ```
 
 `"silent": true` means no turn will start. Either read it from the session
-(the `mesh_inbox` tool or `/mesh`), send it again without the flag, or run the
-mod with `MESH_CLAUDE_WAKE_SILENT=1`.
+(the `mesh_inbox` tool or `/mesh`), send it again without the flag, turn on
+`/mesh wake-silent on` (persisted), or launch with `MESH_CLAUDE_WAKE_SILENT=1`.
 
 ## Caveats
 

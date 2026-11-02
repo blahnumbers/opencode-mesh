@@ -19,6 +19,7 @@ const POLL_MS = 2000;
 const HEARTBEAT_MS = 5 * 60 * 1000;
 const RETRY_MS = 30000;
 const ERROR_LOG_MS = 60000;
+const STATUS_MS = 30000;
 
 let peer = DEFAULT_PEER;
 let owner = DEFAULT_PEER + "-mod";
@@ -131,11 +132,29 @@ async function poll($) {
   }
 }
 
+async function refreshStatus($) {
+  try {
+    const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
+    const rows = parseRows(pending.stdout);
+    if (rows.length === 0) {
+      $.ui.status(undefined);
+      return;
+    }
+    const silent = rows.filter((row) => row.silent).length;
+    $.ui.status(
+      "mesh: " + rows.length + " pending" + (silent > 0 ? " (" + silent + " silent — /mesh)" : ""),
+    );
+  } catch {
+    // Status is advisory; a failed peek must not surface as an error.
+  }
+}
+
 export function register(on) {
   on("session.start", async ($, e, next) => {
     peer = (await $.env.get("MESH_CLAUDE_PEER")) || DEFAULT_PEER;
     owner = peer + "-mod";
-    wakeSilent = (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1";
+    const storedWake = await $.store.get("wakeSilent");
+    wakeSilent = (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1" || storedWake === true;
     const root = (await $.env.get("CLAUDE_PLUGIN_ROOT")) || "";
     cli = (await $.env.get("MESH_CLI")) || root + "/../bin/cli.js";
 
@@ -176,6 +195,7 @@ export function register(on) {
     await registerPeer($);
     $.clock.every(POLL_MS, () => poll($));
     $.clock.every(HEARTBEAT_MS, () => registerPeer($));
+    $.clock.every(STATUS_MS, () => refreshStatus($));
     return next(e);
   }).catch(async ($, e, next) => {
     // A failed init must never block the user's session.
@@ -183,7 +203,20 @@ export function register(on) {
     return next(e);
   });
 
-  on("command.run", { command: "mesh" }, async ($) => {
+  on("command.run", { command: "mesh" }, async ($, e) => {
+    const words = String(e.args || "").trim().split(/\s+/).filter(Boolean);
+    if (words[0] === "wake-silent") {
+      const enable = words[1] === "on";
+      const disable = words[1] === "off";
+      if (!enable && !disable) return { text: "usage: /mesh wake-silent on|off" };
+      wakeSilent = enable;
+      await $.store.set("wakeSilent", enable);
+      return {
+        text: enable
+          ? "mesh: wake-silent ON — silent deposits now start turns (persisted)"
+          : "mesh: wake-silent OFF — silent deposits wait for /mesh or mesh_inbox (persisted)",
+      };
+    }
     const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
     const rows = parseRows(pending.stdout);
     const lines = [

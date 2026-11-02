@@ -29,6 +29,9 @@ and this project adheres to
 - The Claude Code mod refreshes its peer row every five minutes, logs claim and
   poll failures, adds `/mesh`, and can deliver silent deposits as turns with
   `MESH_CLAUDE_WAKE_SILENT=1`
+- The Claude Code mod adds a persisted `/mesh wake-silent on|off` toggle and a
+  `mesh: N pending` status line, so silent deposits are visible and can be
+  woken without a restart
 
 
 ### Fixed
