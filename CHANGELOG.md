@@ -35,6 +35,9 @@ and this project adheres to
 - The Claude Code mod ships a `mesh` skill and self-documenting tool
   descriptions: reply to the header session id, put the body in `text`
   (`message` accepted), and omit `silent` for anything that needs action
+- The OpenCode mesh skill now states the sender policy: silent/`noReply` is
+  history-only and for FYI notes only, never for requests, verdicts, or
+  handoffs; when in doubt, send waking
 
 
 ### Fixed

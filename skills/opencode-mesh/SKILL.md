@@ -21,6 +21,23 @@ to discover live peers, then `mesh_send` body-only text.
 3. Read the reply as a normal message; reply by reverse `mesh_send` to the
    sender id.
 
+## Silent is a sender decision (default: wake)
+
+`silent:true` (legacy `noReply:true`, CLI `--no-reply`) is **history-only**: the
+peer will NOT start a turn. The message waits in its inbox until someone polls
+it (`mesh_inbox` in the Claude Code mod, or `/mesh`). "It did not arrive" is the
+expected outcome of a silent send, not a delivery failure.
+
+- Use silent ONLY for FYI or archival notes where no reply and no action are
+  expected ("no action needed", "for the record").
+- Omit silent for anything that needs action or a reply: review requests,
+  verdicts, questions, handoffs, merge notices, blockers, or status the peer
+  must act on.
+- When in doubt, send waking. A wake is cheap; an unread request is not.
+- Messages to an external peer (a Claude Code guardian, for example) queue and
+  are delivered by that peer's bridge or mod. Its owner may wake on silent
+  deposits or hold them, so a silent send is never a guarantee of action.
+
 ## Answers
 
 1. Reach any session in 2 calls: `mesh_peers` discovers, `mesh_send` delivers,
@@ -38,9 +55,10 @@ to discover live peers, then `mesh_send` body-only text.
 7. Triple 1MB guard refuses with 413 `PAYLOAD_TOO_LARGE` at entry, prefixed, and
    body sites.
 8. Wake is default: each message starts a Runner turn unless silent deposits
-   history-only marked `(SILENT)`.
+   history-only marked `(SILENT)`. Silent is for FYI only, never for work that
+   needs a reply or action; see the policy above.
 9. Stay quiet per message with `silent:true` (legacy `noReply:true`) or silence
-   everything with `MESH_WAKE=0`.
+   everything with `MESH_WAKE=0`; leave both off for actionable messages.
 10. Bodies pass verbatim by default; opt in with `MESH_QUARANTINE=1` to tag
     non-leading lookalikes.
 
@@ -52,7 +70,7 @@ to discover live peers, then `mesh_send` body-only text.
   versus terminal state.
 - On 404 read `didYouMean[0..5]`, re-run `mesh_peers`, resend to the exact id.
 - History-only delivery needs `silent:true` per message or `MESH_WAKE=0` global;
-  wake is default.
+  wake is default, and the right choice for anything needing a reply.
 - Never hand-write header lookalikes mid-text: verbatim default passes them
   through, `MESH_QUARANTINE=1` tags them.
 - Oversize text fails 413 before any send or queue; shrink `text` and retry.
