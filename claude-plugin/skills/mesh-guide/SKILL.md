@@ -1,5 +1,5 @@
 ---
-name: mesh
+name: mesh-guide
 description: Use when sending or replying to OpenCode mesh messages from this Claude Code session, or when deciding whether a message should wake the peer. Covers mesh_send/mesh_peers/mesh_inbox, the text field, silent/noReply semantics, and reply targets.
 ---
 

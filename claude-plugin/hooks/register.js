@@ -132,6 +132,42 @@ async function poll($) {
   }
 }
 
+async function runMeshCommand($, e) {
+  const words = String(e.args || "").trim().split(/\s+/).filter(Boolean);
+  if (words[0] === "wake-silent") {
+    const enable = words[1] === "on";
+    const disable = words[1] === "off";
+    if (!enable && !disable) return { text: "usage: /mesh wake-silent on|off" };
+    wakeSilent = enable;
+    await $.store.set("wakeSilent", enable);
+    return {
+      text: enable
+        ? "mesh: wake-silent ON — silent deposits now start turns (persisted)"
+        : "mesh: wake-silent OFF — silent deposits wait for /mesh or mesh_inbox (persisted)",
+    };
+  }
+  const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
+  const rows = parseRows(pending.stdout);
+  const lines = [
+    "mesh peer: " + peer,
+    "pending: " +
+      rows.length +
+      (wakeSilent ? " (wake-silent on)" : " (silent rows wait for mesh_inbox)"),
+  ];
+  for (const row of rows.slice(0, 5)) {
+    lines.push(
+      "- " +
+        (row.silent ? "[silent] " : "") +
+        row.from_agent +
+        " " +
+        row.from_session +
+        ": " +
+        row.text.slice(0, 80).replace(/\s+/g, " "),
+    );
+  }
+  return { text: lines.join("\n") };
+}
+
 async function refreshStatus($) {
   try {
     const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
@@ -151,98 +187,103 @@ async function refreshStatus($) {
 
 export function register(on) {
   on("session.start", async ($, e, next) => {
-    peer = (await $.env.get("MESH_CLAUDE_PEER")) || DEFAULT_PEER;
-    owner = peer + "-mod";
-    const storedWake = await $.store.get("wakeSilent");
-    wakeSilent = (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1" || storedWake === true;
-    const root = (await $.env.get("CLAUDE_PLUGIN_ROOT")) || "";
-    cli = (await $.env.get("MESH_CLI")) || root + "/../bin/cli.js";
+    try {
+      peer = (await $.env.get("MESH_CLAUDE_PEER")) || DEFAULT_PEER;
+      owner = peer + "-mod";
+      try {
+        const storedWake = await $.store.get("wakeSilent");
+        wakeSilent =
+          (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1" || storedWake === true;
+      } catch {
+        wakeSilent = (await $.env.get("MESH_CLAUDE_WAKE_SILENT")) === "1";
+      }
+      const root = (await $.env.get("CLAUDE_PLUGIN_ROOT")) || "";
+      cli = (await $.env.get("MESH_CLI")) || root + "/../bin/cli.js";
 
-    await $.tool.register({
-      name: "mesh_send",
-      description:
-        "Send a message to another OpenCode mesh peer. target is the exact ses_... id from an [OC-MESH | SENDER] header (or an external peer id). Put the body in text; message is accepted as an alias. Omit silent for anything that needs a reply or action; silent:true is history-only and will not wake the peer.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          target: { type: "string", description: "Peer session id (ses_...) or external peer id" },
-          text: {
-            type: "string",
-            description: "Message body only; the mesh adds the sender header. Use text (message is an alias).",
+      try {
+        await $.tool.register({
+          name: "mesh_send",
+          description:
+            "Send a message to another OpenCode mesh peer. target is the exact ses_... id from an [OC-MESH | SENDER] header (or an external peer id). Put the body in text; message is accepted as an alias. Omit silent for anything that needs a reply or action; silent:true is history-only and will not wake the peer.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              target: { type: "string", description: "Peer session id (ses_...) or external peer id" },
+              text: {
+                type: "string",
+                description: "Message body only; the mesh adds the sender header. Use text (message is an alias).",
+              },
+              silent: {
+                type: "boolean",
+                description:
+                  "History-only deposit: the peer will NOT start a turn. Omit for review requests, verdicts, questions, handoffs, or anything needing action.",
+              },
+            },
+            required: ["target", "text"],
           },
-          silent: {
-            type: "boolean",
-            description:
-              "History-only deposit: the peer will NOT start a turn. Omit for review requests, verdicts, questions, handoffs, or anything needing action.",
-          },
-        },
-        required: ["target", "text"],
-      },
-    });
+        });
+      } catch (error) {
+        $.ui.log("mesh: mesh_send tool register failed: " + errorText(error));
+      }
 
-    await $.tool.register({
-      name: "mesh_peers",
-      description: "List mesh peers with session id, agent, repo, and liveness.",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    });
+      try {
+        await $.tool.register({
+          name: "mesh_peers",
+          description: "List mesh peers with session id, agent, repo, and liveness.",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        });
+      } catch (error) {
+        $.ui.log("mesh: mesh_peers tool register failed: " + errorText(error));
+      }
 
-    await $.tool.register({
-      name: "mesh_inbox",
-      description:
-        "Read pending mesh messages for this session without marking them read. Includes silent deposits, which do not start turns on their own.",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    });
+      try {
+        await $.tool.register({
+          name: "mesh_inbox",
+          description:
+            "Read pending mesh messages for this session without marking them read. Includes silent deposits, which do not start turns on their own.",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        });
+      } catch (error) {
+        $.ui.log("mesh: mesh_inbox tool register failed: " + errorText(error));
+      }
 
-    await $.command.register({
-      name: "mesh",
-      description: "Show this mesh peer's pending messages and wake-silent setting",
-    });
+      // A command name can collide with a skill (the plugin also ships
+      // skills/mesh). Try the short name, then the namespaced fallback, but
+      // never let a command failure stop the poller.
+      try {
+        await $.command.register({
+          name: "mesh",
+          description: "Show this mesh peer's pending messages and wake-silent setting",
+        });
+      } catch (error) {
+        $.ui.log("mesh: /mesh register failed: " + errorText(error));
+        try {
+          await $.command.register({
+            name: "mesh-status",
+            description: "Show this mesh peer's pending messages and wake-silent setting",
+          });
+        } catch (fallbackError) {
+          $.ui.log("mesh: /mesh-status register failed: " + errorText(fallbackError));
+        }
+      }
 
-    $.ui.log("mesh: peer=" + peer + " cli=" + cli + (wakeSilent ? " (wake-silent)" : ""));
-    await registerPeer($);
-    $.clock.every(POLL_MS, () => poll($));
-    $.clock.every(HEARTBEAT_MS, () => registerPeer($));
-    $.clock.every(STATUS_MS, () => refreshStatus($));
-    return next(e);
-  }).catch(async ($, e, next) => {
-    // A failed init must never block the user's session.
-    $.ui.log("mesh: init failed: " + String(next.error && next.error.kind ? next.error.kind : "error"));
+      // Start the pollers before anything that can fail slowly: a failed peer
+      // registration must not leave the session without wake delivery.
+      $.clock.every(POLL_MS, () => poll($));
+      $.clock.every(HEARTBEAT_MS, () => registerPeer($));
+      $.clock.every(STATUS_MS, () => refreshStatus($));
+
+      $.ui.log("mesh: peer=" + peer + " cli=" + cli + (wakeSilent ? " (wake-silent)" : ""));
+      await registerPeer($);
+    } catch (error) {
+      // Bounded blast radius: log the real message, never block the session.
+      $.ui.log("mesh: init failed: " + errorText(error));
+    }
     return next(e);
   });
 
-  on("command.run", { command: "mesh" }, async ($, e) => {
-    const words = String(e.args || "").trim().split(/\s+/).filter(Boolean);
-    if (words[0] === "wake-silent") {
-      const enable = words[1] === "on";
-      const disable = words[1] === "off";
-      if (!enable && !disable) return { text: "usage: /mesh wake-silent on|off" };
-      wakeSilent = enable;
-      await $.store.set("wakeSilent", enable);
-      return {
-        text: enable
-          ? "mesh: wake-silent ON — silent deposits now start turns (persisted)"
-          : "mesh: wake-silent OFF — silent deposits wait for /mesh or mesh_inbox (persisted)",
-      };
-    }
-    const pending = await mesh($, ["inbox", "--peer", peer, "--json"]);
-    const rows = parseRows(pending.stdout);
-    const lines = [
-      "mesh peer: " + peer,
-      "pending: " + rows.length + (wakeSilent ? " (wake-silent on)" : " (silent rows wait for mesh_inbox)"),
-    ];
-    for (const row of rows.slice(0, 5)) {
-      lines.push(
-        "- " +
-          (row.silent ? "[silent] " : "") +
-          row.from_agent +
-          " " +
-          row.from_session +
-          ": " +
-          row.text.slice(0, 80).replace(/\s+/g, " "),
-      );
-    }
-    return { text: lines.join("\n") };
-  });
+  on("command.run", { command: "mesh" }, async ($, e) => runMeshCommand($, e));
+  on("command.run", { command: "mesh-status" }, async ($, e) => runMeshCommand($, e));
 
   on("prompt.submit", async ($, e, next) => {
     // The user (or a submit) is back: clear the interrupt backoff.

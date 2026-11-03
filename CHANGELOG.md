@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix a fresh Claude Code session losing wake delivery when the plugin's own
+  skill reserves the `/mesh` command name (root cause: Claude Code 2.1.317
+  refuses `$.command.register("mesh")` because `skills/mesh` already owns it,
+  and the throw aborted `session.start` before the poller started; fix
+  mechanism: rename the skill to `mesh-guide`, start the pollers before any
+  failure-prone step, and stage-guard every optional registration). The
+  `/mesh-status` fallback command covers any future collision.
+
 ### Added
 
 - Serve a mesh peer from Claude Code with `mesh-claude-bridge` (external peer
