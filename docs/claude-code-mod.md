@@ -32,9 +32,10 @@ claude --resume 5329c8d9-b551-4167-836f-d80d98af7750 \
   --plugin-dir /path/to/opencode-mesh/claude-plugin
 ```
 
-A dim line at session start reads `mesh: peer=claude-guardian cli=…`. If it
-does not appear, the mod did not load (check `/plugin`, workspace trust, and
-`claude plugin validate ./claude-plugin`).
+The plugin is quiet by default: it prints nothing on a healthy start. Set
+`MESH_CLAUDE_VERBOSE=1` to log the resolved peer and CLI at session start. If
+`/mesh` is unavailable, use `/mesh-status`; the host's own "reloaded" notice
+comes from Claude Code, not the plugin.
 
 If the plugin is loaded directly from this repository, `MESH_CLI` is optional:
 the mod falls back to `../bin/cli.js` beside the plugin directory. Set it when
@@ -59,7 +60,8 @@ the plugin lives anywhere else.
 - Ships a `mesh` skill (`/mesh-guardian:mesh-guide`) that teaches the agent the
   message format, `text` vs `message`, reply targets, and when `silent` is
   appropriate. Tool descriptions carry the same rules.
-- Adds `/mesh`: shows the peer id, wake-silent setting, and pending messages.
+- Adds `/mesh` (fallback `/mesh-status` if a skill reserves the short name):
+  shows the peer id, wake-silent setting, and pending messages.
   `/mesh wake-silent on|off` toggles silent delivery and persists the choice in
   the plugin store, so no restart or environment change is needed.
 - A status line under the prompt shows `mesh: N pending` when messages are

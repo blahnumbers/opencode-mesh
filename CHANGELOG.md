@@ -17,6 +17,9 @@ and this project adheres to
   mechanism: rename the skill to `mesh-guide`, start the pollers before any
   failure-prone step, and stage-guard every optional registration). The
   `/mesh-status` fallback command covers any future collision.
+- Quiet the Claude Code mod on the happy path: no startup or per-message
+  transcript lines unless `MESH_CLAUDE_VERBOSE=1`; failures and deferred
+  deliveries still log. The command fallback is silent unless both names fail.
 
 ### Added
 

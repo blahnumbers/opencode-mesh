@@ -25,6 +25,7 @@ let peer = DEFAULT_PEER;
 let owner = DEFAULT_PEER + "-mod";
 let cli = "";
 let wakeSilent = false;
+let verbose = false;
 let busy = false;
 let submitting = false;
 let retryAt = 0;
@@ -108,7 +109,6 @@ async function poll($) {
   const row = rows[0];
   submitting = true;
   busy = true;
-  $.ui.log("mesh: injecting " + row.id + " from " + row.from_session);
   try {
     const answer = await $.prompt.submit({ text: formatMessage(row), asUser: true });
     if (answer && answer.drop) {
@@ -199,6 +199,7 @@ export function register(on) {
       }
       const root = (await $.env.get("CLAUDE_PLUGIN_ROOT")) || "";
       cli = (await $.env.get("MESH_CLI")) || root + "/../bin/cli.js";
+      verbose = (await $.env.get("MESH_CLAUDE_VERBOSE")) === "1";
 
       try {
         await $.tool.register({
@@ -255,15 +256,16 @@ export function register(on) {
           name: "mesh",
           description: "Show this mesh peer's pending messages and wake-silent setting",
         });
-      } catch (error) {
-        $.ui.log("mesh: /mesh register failed: " + errorText(error));
+      } catch {
+        // The plugin's own skill can reserve a short command name; fall back
+        // silently so a transition does not print a warning on every reload.
         try {
           await $.command.register({
             name: "mesh-status",
             description: "Show this mesh peer's pending messages and wake-silent setting",
           });
         } catch (fallbackError) {
-          $.ui.log("mesh: /mesh-status register failed: " + errorText(fallbackError));
+          $.ui.log("mesh: command register failed: " + errorText(fallbackError));
         }
       }
 
@@ -273,7 +275,9 @@ export function register(on) {
       $.clock.every(HEARTBEAT_MS, () => registerPeer($));
       $.clock.every(STATUS_MS, () => refreshStatus($));
 
-      $.ui.log("mesh: peer=" + peer + " cli=" + cli + (wakeSilent ? " (wake-silent)" : ""));
+      if (verbose) {
+        $.ui.log("mesh: peer=" + peer + " cli=" + cli + (wakeSilent ? " (wake-silent)" : ""));
+      }
       await registerPeer($);
     } catch (error) {
       // Bounded blast radius: log the real message, never block the session.
